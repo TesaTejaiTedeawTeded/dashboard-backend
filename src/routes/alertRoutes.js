@@ -112,5 +112,62 @@ export default (io) => {
         res.json(records);
     });
 
+    router.get("/history", async (req, res) => {
+        try {
+            const { start, end, limit, cameraId } = req.query;
+            const startDate = start ? new Date(start) : new Date(0);
+            const endDate = end ? new Date(end) : new Date();
+            const limitValue = Number.isFinite(Number(limit))
+                ? Math.min(Number(limit), 500)
+                : 200;
+
+            const query = {
+                timestamp: {
+                    $gte: startDate,
+                    $lte: endDate,
+                },
+            };
+
+            if (cameraId && cameraId !== "all") {
+                query.cameraId = cameraId;
+            }
+
+            const records = await Defensive.find(query)
+                .sort({ timestamp: -1 })
+                .limit(limitValue);
+
+            res.json(records);
+        } catch (err) {
+            console.error("❌ Error loading defensive history:", err);
+            res.status(500).json({ error: "Failed to load defensive history" });
+        }
+    });
+
+    router.get("/cameras", async (req, res) => {
+        try {
+            const cameras = await Defensive.aggregate([
+                {
+                    $group: {
+                        _id: "$cameraId",
+                        lastSeen: { $max: "$timestamp" },
+                        count: { $sum: 1 },
+                    },
+                },
+                { $sort: { _id: 1 } },
+            ]);
+
+            res.json(
+                cameras.map((camera) => ({
+                    cameraId: camera._id,
+                    lastSeen: camera.lastSeen,
+                    count: camera.count,
+                }))
+            );
+        } catch (err) {
+            console.error("❌ Error loading camera list:", err);
+            res.status(500).json({ error: "Failed to load camera list" });
+        }
+    });
+
     return router;
 };
