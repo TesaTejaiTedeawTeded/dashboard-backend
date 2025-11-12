@@ -1,10 +1,12 @@
 import userRoutes from "./userRoutes.js";
 import alertRoutesFactory from "./alertRoutes.js";
 import messageRoutes from "./messageRoutes.js";
+import cameraRoutes from "./cameraRoutes.js";
 
 export const registerRoutes = (app, io) => {
     app.use("/api/auth", userRoutes);
     app.use("/api/messages", messageRoutes);
+    app.use("/api/cameras", cameraRoutes);
     if (io) {
         app.use("/api/alerts", alertRoutesFactory(io));
     }
