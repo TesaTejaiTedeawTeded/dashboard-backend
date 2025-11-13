@@ -1,5 +1,4 @@
 import express from "express";
-import multer from "multer";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
@@ -11,21 +10,6 @@ const ensureDir = (dirPath) => {
     }
 };
 
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadDir = path.join("uploads", "defensive");
-        ensureDir(uploadDir);
-        cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-        const ext = path.extname(file.originalname);
-        const baseName = path.basename(file.originalname, ext);
-        cb(null, `${Date.now()}-${baseName}${ext}`);
-    },
-});
-
-const upload = multer({ storage });
-
 const parseJSONField = (value, fallback = null) => {
     if (!value) return fallback;
     if (typeof value === "string") {
@@ -36,6 +20,38 @@ const parseJSONField = (value, fallback = null) => {
         }
     }
     return value;
+};
+
+const imageExtFromMime = (mime = "") => {
+    if (mime.includes("jpeg") || mime.includes("jpg")) return "jpg";
+    if (mime.includes("png")) return "png";
+    if (mime.includes("gif")) return "gif";
+    if (mime.includes("bmp")) return "bmp";
+    return "png";
+};
+
+const saveBase64Image = (base64String) => {
+    if (!base64String) return null;
+    try {
+        const dataMatch = /^data:(.+);base64,(.+)$/.exec(base64String);
+        const mimeType = dataMatch ? dataMatch[1] : "image/png";
+        const data = dataMatch ? dataMatch[2] : base64String;
+
+        const buffer = Buffer.from(data, "base64");
+        if (!buffer.length) return null;
+
+        const uploadDir = path.join("uploads", "defensive");
+        ensureDir(uploadDir);
+
+        const extension = imageExtFromMime(mimeType);
+        const filename = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
+        const filepath = path.join(uploadDir, filename);
+        fs.writeFileSync(filepath, buffer);
+        return `/${filepath.replace(/\\\\/g, "/")}`;
+    } catch (error) {
+        console.error("⚠️ Failed to decode base64 image:", error.message);
+        return null;
+    }
 };
 
 const mapObjects = (objects = []) =>
@@ -72,7 +88,7 @@ const mapObjects = (objects = []) =>
 export default (io) => {
     const router = express.Router();
 
-    router.post("/", upload.single("image"), async (req, res) => {
+    router.post("/", async (req, res) => {
         try {
             const {
                 cameraId = "unknown",
@@ -80,12 +96,11 @@ export default (io) => {
                 camLat,
                 camLong,
                 objects,
+                imageBase64,
             } = req.body;
 
             const parsedObjects = parseJSONField(objects, objects);
-            const sharedImagePath = req.file
-                ? `/${req.file.path.replace(/\\/g, "/")}`
-                : null;
+            const sharedImagePath = saveBase64Image(imageBase64);
 
             const detection = await Defensive.create({
                 cameraId,
