@@ -53,6 +53,36 @@ const normalizeDetection = (raw = {}) => {
 
 export default (io) => {
     const router = express.Router();
+    const DEFAULT_LIMIT = 200;
+    const MAX_LIMIT = 1000;
+
+    const parseDate = (value) => {
+        if (!value) return null;
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? null : date;
+    };
+
+    const buildHistoryQuery = (query = {}) => {
+        const start = parseDate(query.start);
+        const end = parseDate(query.end);
+        const limit = Math.min(
+            Math.max(Number(query.limit) || DEFAULT_LIMIT, 1),
+            MAX_LIMIT
+        );
+
+        const filter = {};
+        if (start || end) {
+            filter.timestamp = {};
+            if (start) filter.timestamp.$gte = start;
+            if (end) filter.timestamp.$lte = end;
+        }
+
+        if (query.droneId && query.droneId !== "all") {
+            filter.droneId = query.droneId;
+        }
+
+        return { filter, limit };
+    };
 
     router.post("/", async (req, res) => {
         try {
@@ -104,13 +134,41 @@ export default (io) => {
 
     router.get("/", async (req, res) => {
         try {
-            const records = await Offensive.find()
+            const { filter, limit } = buildHistoryQuery(req.query);
+            const records = await Offensive.find(filter)
                 .sort({ timestamp: -1 })
-                .limit(200);
+                .limit(limit);
             res.json(records);
         } catch (error) {
             console.error("❌ Error loading offensive data:", error);
             res.status(500).json({ error: "Failed to load offensive data" });
+        }
+    });
+
+    router.get("/drones", async (req, res) => {
+        try {
+            const aggregates = await Offensive.aggregate([
+                {
+                    $group: {
+                        _id: "$droneId",
+                        count: { $sum: 1 },
+                        lastSeen: { $max: "$timestamp" },
+                    },
+                },
+                { $match: { _id: { $ne: null } } },
+                { $sort: { lastSeen: -1 } },
+            ]);
+
+            res.json(
+                aggregates.map((item) => ({
+                    droneId: item._id,
+                    count: item.count,
+                    lastSeen: item.lastSeen,
+                }))
+            );
+        } catch (error) {
+            console.error("❌ Error loading offensive drones:", error);
+            res.status(500).json({ error: "Failed to load offensive drones" });
         }
     });
 
